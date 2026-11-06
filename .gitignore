@@ -1,0 +1,12 @@
+# generated output (contains data extracted from APKs)
+out/
+# APK files are never stored in the repo
+*.apk
+*.xapk
+*.apks
+# Python
+__pycache__/
+*.pyc
+.venv/
+# Office lock files
+~$*

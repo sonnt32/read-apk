@@ -1,0 +1,3 @@
+openpyxl>=3.1
+# optional: read Unity Mono games (Assembly-CSharp.dll)
+dnfile>=0.15

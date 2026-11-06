@@ -1,0 +1,221 @@
+{
+  "game": {
+    "name": "Color Block Jam",
+    "package": "com.ss.block.slide.jam",
+    "version": "0.1.8 (18)",
+    "engine": "Unity IL2CPP (metadata v39 / Unity 6)",
+    "genre": "Puzzle — slide block, level-based, giới hạn thời gian, có lives",
+    "core_loop": "Home → bấm Play (tốn 1 life khi thua) → kéo các block màu ra đúng cổng (gate) cùng màu trước khi hết giờ → Win: nhận coin (x2 nếu xem ads) → Next level. Thua khi hết giờ (OutOfTime: mua +20s bằng coin hoặc bỏ cuộc) hoặc bom nổ (TimedBomb). Hết life → Refill bằng coin/ads hoặc chờ hồi.",
+    "summary": "Mỗi level có thời gian đếm ngược, obstacle tăng dần: ice, stone, lock & key, screw & screwdriver, timed bomb, teeth block, colorful path, layer holder. 3 booster: Freeze (dừng giờ), Hammer (phá block), Magnet; mở khóa theo level kèm tutorial riêng. Có hard level, skip level bằng ads, shop IAP (no ads, bundle, coin pack, hot deal), profile avatar/frame, thống kê goals (highest level, one-shot win, longest streak).",
+    "features": [
+      {"name": "Core puzzle (kéo block ra gate)", "evidence": "BlockBase.OnDrag/OnBrokenBlock, GateController.OnBrokenBlockByGate, GridController, DragHandler"},
+      {"name": "Level + timer + hard level", "evidence": "LevelController.LoadLevel/CurrentLevelIndex, DataLevel_SO.time/isHardLevel, HardLevelPanel, GameplayManager.get_TimeCountDownPlay/CheckHardLevelForGame"},
+      {"name": "Thua do hết giờ / bom", "evidence": "GameplayManager.ActiveTimeUpPopup/ActiveLosePopupByBomb, GameState.LoseByBomb/OutOfTime, OutOfTime.OnClickBuyTime/AddTime, TimedBomb.OnExplosion"},
+      {"name": "Booster Freeze / Hammer / Magnet", "evidence": "TypeBooster enum, BoosterUnlock, BoosterPurchasePanel.PurchaseXWithCoins/WithAd, GameplayManager.ActiveFreeze/ActiveBoosterHammer/ActiveBoosterMagnet"},
+      {"name": "Lives (hồi theo giờ, infinity life)", "evidence": "LivesManager.LoseLife/StartLifeRegen/ActivateInfinityLifeForHours, RefillPopup.RefillLivesWithAd/RefillLifesWithCoins"},
+      {"name": "Coin economy", "evidence": "WinPopup.GetBaseCoinReward/claim2xBtn/NextLevelWithAd, RemoteConfigManager.econ_level_coin_base, OutOfTime.buyTwentySecTxt"},
+      {"name": "Skip level (ads)", "evidence": "GameplayManager.SkipLevel/SkipCurrentLevelAndPlay, GamePanel.skipLevelBtn"},
+      {"name": "Tutorial (onboarding + booster)", "evidence": "TutorialManager.StartFirstTutActive/ActiveFreezeTut/ActiveHammerTut/ActiveMagnetTut, PlayerPrefsManager.Get_Level_1_Tut_Count"},
+      {"name": "Unlock blocker / booster mới", "evidence": "BlockUnlockPopup, BoosterUnlockPopup.ClaimHammer/ClaimFreeze/ClaimMagnet"},
+      {"name": "Shop IAP", "evidence": "IAPManager / MovingShop: HotDeal, NoAds, NoAdsBundle, LivesBundle, StandardBundle, EpicBundle, Purchase_500..50000_Coins"},
+      {"name": "Profile avatar / frame", "evidence": "ProfilePanel.SelectAvatar/SelectFrame/SaveProfileData"},
+      {"name": "Goals / streak", "evidence": "GoalsManager.IncreaseOneShotWin/IncreaseLongestStreak"},
+      {"name": "Terms & no-internet gate", "evidence": "TermsAndConditionsPopup.OnAgreeClicked, NoInternetPopup, RemoteConfig.canPlayWithoutInternet"}
+    ]
+  },
+  "include_iap": true,
+  "level_based": true,
+
+  "excluded_events": {
+    "level_reopen": "Game chơi tuyến tính: không có màn chọn level, không thể mở lại level đã qua (LevelController chỉ có LoadLevel theo currentLevelIndex). Chơi lại sau thua đã đo bằng level_start.play_type = replay.",
+    "tutorial_skip": "Tutorial không có nút Skip (TutorialManager chỉ có Start/Close cho từng tutorial).",
+    "button_tap": "Không có CTA nào cần đo riêng: điều hướng vào các tính năng đã đo bằng feature_open.entry_point, nút mua đã đo bằng iap_click, dùng booster đã đo bằng resource_spend."
+  },
+
+  "standard_events": [
+    {
+      "event": "level_start", "priority": "P0", "status": "Sửa",
+      "code_location": "FirebaseManager.Sheet_LevelStart (gọi từ GameplayManager.LoadLevel / ReplayLevel)",
+      "param_values": {
+        "play_type": "normal | replay | other — normal: from_home, next_level; replay: replay_af_lose, restart"
+      },
+      "extra_params": [
+        {"name": "start_type", "type": "String", "values": "from_home | next_level | replay_after_lose | restart | other — đang có sẵn trong code (enum StartType)", "metric": "Điều hướng vào level: replay sau thua chiếm bao nhiêu %"},
+        {"name": "level_difficulty", "type": "String", "values": "normal | hard | other (DataLevel_SO.isHardLevel)", "metric": "Pass rate tách hard level"},
+        {"name": "time_limit_sec", "type": "String", "values": "Thời gian giới hạn của level (DataLevel_SO.time)", "metric": "Difficulty curve"}
+      ],
+      "note": "Bỏ ftd_level_start: lượt đầu = play_index '1'."
+    },
+    {
+      "event": "level_end", "priority": "P0", "status": "Sửa",
+      "code_location": "FirebaseManager.Sheet_LevelEnd (gọi tại GameplayManager.ActiveWinPopup / ActiveLosePopup / ActiveLosePopupByBomb / SkipLevel)",
+      "param_values": {
+        "result": "win | lose | skip | other — skip: user bỏ qua level bằng ads (GameplayManager.SkipLevel)",
+        "lose_by": "time_up | bomb | other — null khi win/skip",
+        "count_hint": "Game không có hint → không gửi; dùng booster_used thay thế"
+      },
+      "extra_params": [
+        {"name": "level_difficulty", "type": "String", "values": "normal | hard | other", "metric": "Pass rate tách hard level"},
+        {"name": "time_left_sec", "type": "String", "values": "Số giây còn lại khi kết thúc (0 khi time_up)", "metric": "Level dễ/khó hơn thiết kế"},
+        {"name": "booster_used", "type": "String", "values": "Số booster đã dùng trong lượt (freeze + hammer + magnet)", "metric": "Booster dependency theo level"},
+        {"name": "time_extend_count", "type": "String", "values": "Số lần mua thêm thời gian (+20s) trong lượt", "metric": "Nhu cầu continue → tiềm năng sink coin / reward ads"},
+        {"name": "win_streak", "type": "String", "values": "Chuỗi thắng liên tiếp hiện tại (GoalsManager.longestStreak)", "metric": "Streak ảnh hưởng retention"}
+      ]
+    },
+    {
+      "event": "level_exit", "priority": "P1", "status": "Mới",
+      "trigger": "Thoát level giữa chừng không có kết quả: Setting → Home → xác nhận AreYouSure (GamePanel.isLevelQuit), hoặc kill app khi GameState = Playing",
+      "code_location": "SettingPanel.HomeBtnClicked / ActiveAreYouSure; OnApplicationPause khi GameState.Playing",
+      "param_values": {"level_progress": "% block đã đưa ra gate (FirebaseManager.PercentCompleteLevel đã có sẵn)"}
+    },
+    {
+      "event": "resource_earn", "priority": "P0", "status": "Mới",
+      "code_location": "WinPopup.AddCoins / NextLevelWithAd; RefillPopup.Refill*; BoosterUnlockPopup.Claim*; MovingShop/IAPManager.*_Purchase; LivesManager.AddLife / ActivateInfinityLifeForHours",
+      "param_values": {
+        "resource_type": "coin | life | infinite_life_min | booster_freeze | booster_hammer | booster_magnet | other",
+        "source": "level_win | reward_ad | iap | booster_unlock | life_regen | other — level_win x2 bằng ads ghi source = reward_ad"
+      },
+      "extra_params": [
+        {"name": "placement", "type": "String", "values": "win_popup | refill_popup | booster_purchase_popup | shop | shop_popup | booster_unlock_popup | other", "metric": "Nguồn kiếm theo vị trí"},
+        {"name": "level", "type": "String", "values": "Level hiện tại", "metric": "Source theo tiến độ"}
+      ]
+    },
+    {
+      "event": "resource_spend", "priority": "P0", "status": "Mới",
+      "code_location": "BoosterPurchasePanel.Purchase*WithCoins; OutOfTime.OnClickBuyTime; RefillPopup.RefillLifesWithCoins; GameplayManager.ActiveFreeze/ActiveBoosterHammer/ActiveBoosterMagnet; LivesManager.LoseLife",
+      "param_values": {
+        "resource_type": "coin | life | booster_freeze | booster_hammer | booster_magnet | other",
+        "source": "buy_item | use_booster | buy_time | refill_life | level_lose | other — buy_item: mua booster bằng coin; buy_time: +20s ở OutOfTime; level_lose: trừ 1 life khi thua"
+      },
+      "extra_params": [
+        {"name": "placement", "type": "String", "values": "gameplay | out_of_time_popup | refill_popup | booster_purchase_popup | lose_popup | other", "metric": "Sink theo vị trí"},
+        {"name": "level", "type": "String", "values": "Level hiện tại", "metric": "Level nào dùng booster / mua thời gian nhiều nhất"}
+      ],
+      "note": "Thay cho param time_purchase đang có (IncreaseTimePurchaseCount)."
+    },
+    {
+      "event": "loading_start", "priority": "P1", "status": "Mới",
+      "trigger": "Màn loading xuất hiện (LoadingScreenManager.LoadSceneWithProgress bắt đầu)",
+      "code_location": "LoadingScreenManager.LoadSceneWithProgress; InGameLoadingManager.ActivateLoading"
+    },
+    {
+      "event": "loading_completed", "priority": "P1", "status": "Mới",
+      "trigger": "Load scene xong, vào được Home",
+      "code_location": "LoadingScreenManager.LoadSceneWithProgress (khi operation.isDone)",
+      "extra_params": [
+        {"name": "wait_app_open_ad", "type": "String", "values": "true | false — có chờ App Open Ad lúc khởi động không (waitForAppOpenAdOnStartup)", "metric": "Ads App Open làm loading dài bao nhiêu"}
+      ]
+    },
+    {
+      "event": "tutorial_start", "priority": "P0", "status": "Mới",
+      "code_location": "TutorialManager.StartFirstTutActive / ActiveFreezeTut / ActiveHammerTut / ActiveMagnetTut",
+      "extra_params": [
+        {"name": "tutorial_name", "type": "String", "values": "onboarding | freeze | hammer | magnet | other", "metric": "Funnel riêng từng tutorial"}
+      ],
+      "note": "onboarding bắn 1 lần duy nhất; tutorial booster bắn khi mở khóa booster."
+    },
+    {
+      "event": "tutorial_step_complete", "priority": "P0", "status": "Mới",
+      "code_location": "TutorialManager (PlayerPrefsManager.Set_Level_1_Tut_Count tăng step)",
+      "extra_params": [
+        {"name": "tutorial_name", "type": "String", "values": "onboarding | freeze | hammer | magnet | other", "metric": "Drop-off theo step từng tutorial"}
+      ]
+    },
+    {
+      "event": "tutorial_complete", "priority": "P0", "status": "Mới",
+      "code_location": "TutorialManager.CloseFirstTut / CloseFreezeTut / CloseHammerTut / CloseMagnetTut (khi Save_*TutDone)",
+      "extra_params": [
+        {"name": "tutorial_name", "type": "String", "values": "onboarding | freeze | hammer | magnet | other", "metric": "Completion rate từng tutorial"}
+      ]
+    },
+    {
+      "event": "feature_open", "priority": "P1", "status": "Mới",
+      "code_location": "ShopPopup.OpenPopup; MovingShop (shopFromHome); ProfilePanel.OpenPopup; SettingPanel.OpenHomeSettingPopup/OpenGameSettingPopup; RefillPopup.OpenPopup; BoosterPurchasePanel.OpenPopup; NoInternetPopup.OpenPopup; HomePanel.LeaderboardBtnClicked",
+      "param_values": {
+        "feature_name": "shop | shop_popup | profile | setting | refill_life | booster_purchase | hot_deal | leaderboard | no_internet | other",
+        "entry_point": "home_button | gameplay | out_of_time_popup | lose_popup | win_popup | auto | other"
+      }
+    },
+    {
+      "event": "feature_close", "priority": "P2", "status": "Mới",
+      "code_location": "ClosePopup / CloseStore tương ứng của từng feature ở trên",
+      "param_values": {"feature_name": "Như feature_open", "duration": "Giây ở trong feature"}
+    },
+    {
+      "event": "asset_unlock", "priority": "P1", "status": "Mới",
+      "trigger": "Booster được mở khóa và vào inventory (BoosterUnlockPopup.ClaimHammer/ClaimFreeze/ClaimMagnet)",
+      "code_location": "BoosterUnlockPopup.Claim*; BoosterUnlock.LockUnlockFreeze/Hammer/Magnet",
+      "param_values": {
+        "asset_type": "booster | avatar | frame | other",
+        "asset_id": "freeze | hammer | magnet | {avatar_index} | {frame_index} | other",
+        "unlock_method": "level_reach | coin | iap | reward | free | other"
+      }
+    },
+    {
+      "event": "asset_equip", "priority": "P2", "status": "Mới",
+      "trigger": "User chọn avatar / frame và lưu (ProfilePanel.SelectAvatar / SelectFrame → SaveProfileData)",
+      "code_location": "ProfilePanel.SelectAvatar / SelectFrame / SaveProfileData",
+      "param_values": {"asset_type": "avatar | frame | other", "asset_id": "Index avatar/frame (avatarIndex / frameIndex)"}
+    },
+    {
+      "event": "iap_show", "priority": "P1", "status": "Mới",
+      "code_location": "ShopPopup.OpenPopup; MovingShop; OutOfTime.hotDealPopup",
+      "param_values": {
+        "pack_name": "hot_deal | no_ads | no_ads_bundle | lives_bundle | standard_bundle | epic_bundle | coins_500 | coins_2500 | coins_5000 | coins_12500 | coins_25000 | coins_50000 | other",
+        "placement": "shop | shop_popup | out_of_time_popup | no_ads_popup | home_button | other"
+      }
+    },
+    {
+      "event": "iap_click", "priority": "P1", "status": "Mới",
+      "code_location": "IAPManager.TapOnBtn",
+      "param_values": {"pack_name": "Như iap_show", "placement": "Như iap_show"}
+    },
+    {
+      "event": "iap_purchase", "priority": "P0", "status": "Mới",
+      "code_location": "IAPManager.*_Purchase (callback mua thành công)",
+      "param_values": {"pack_name": "Như iap_show", "placement": "Như iap_show"}
+    }
+  ],
+
+  "custom_events": [
+    {
+      "group": "Onboarding", "tier": "T3", "event": "terms_accept", "priority": "P1",
+      "question": "Bao nhiêu % user mới bị rơi ở màn Terms & Conditions trước khi vào game? (bước đầu tiên của D0 funnel: first_open → terms_accept → loading_completed → tutorial_start)",
+      "trigger": "User bấm Agree ở TermsAndConditionsPopup (1 lần duy nhất)",
+      "code_location": "TermsAndConditionsPopup.OnAgreeClicked",
+      "params": [
+        {"name": "duration", "type": "String", "values": "Giây từ lúc popup hiện đến khi bấm Agree", "metric": "Terms gây cản trở hay không"}
+      ]
+    }
+  ],
+
+  "user_properties": [
+    {"tier": "T3", "property": "is_no_ads", "type": "String", "meaning": "User đã mua gói No Ads / No Ads Bundle", "update_when": "Mua thành công hoặc restore purchase", "values": "true | false", "note": "PlayerPrefsManager.NOADSPURCHASE / NOADSBUNDLEPURCHASED — tách user không xem inter khi phân tích ads"},
+    {"tier": "T3", "property": "booster_unlocked", "type": "String", "meaning": "Các booster đã mở khóa", "update_when": "Mỗi lần mở khóa booster", "values": "none | freeze | freeze,hammer | freeze,hammer,magnet", "note": "Phân tích hành vi trước/sau khi có booster"}
+  ],
+
+  "existing_mapping": [
+    {"old_event": "level_start", "old_params": "chưa rõ (FirebaseManager.Sheet_LevelStart)", "new_event": "level_start", "new_params": "level, play_index, play_type, start_type, level_difficulty, time_limit_sec", "note": "Tên đúng chuẩn. Dev kiểm tra param đủ và level gửi dạng String.", "status": "yellow"},
+    {"old_event": "level_end", "old_params": "chưa rõ (FirebaseManager.Sheet_LevelEnd)", "new_event": "level_end", "new_params": "result=win|lose|skip, lose_by=time_up|bomb, play_duration, time_left_sec, booster_used, time_extend_count, win_streak", "note": "Tên đúng chuẩn. Code có enum LevelTrackType (Level_Win/Level_Lose) và ResultType (Win/retry/Lose) → chuẩn hóa về result win|lose|skip, bỏ 'retry' (retry là play_type của level_start kế tiếp).", "status": "yellow"},
+    {"old_event": "ftd_level_start", "old_params": "level_{0}", "new_event": "level_start", "new_params": "play_index='1'", "note": "Sai: hardcode 'first time' vào tên event và hardcode level vào giá trị 'level_{0}'. Dùng level_start với play_index = '1', level = '3' (không có tiền tố level_).", "status": "red"},
+    {"old_event": "(param) start_type", "old_params": "from_home | next_level | replay_af_lose | restart", "new_event": "level_start", "new_params": "play_type + start_type", "note": "Giữ start_type làm param phụ, đổi giá trị replay_af_lose → replay_after_lose, thêm 'other'. Map sang play_type chuẩn.", "status": "yellow"},
+    {"old_event": "(param) percent_complete", "old_params": "PercentCompleteLevel", "new_event": "level_exit", "new_params": "level_progress", "note": "Đổi tên param theo chuẩn, dùng cho level_exit.", "status": "yellow"},
+    {"old_event": "(param) play_duration, play_index", "old_params": "", "new_event": "level_start / level_end", "new_params": "play_duration, play_index", "note": "Tên trùng chuẩn. Kiểm tra kiểu String.", "status": "green"},
+    {"old_event": "(param) hard_level", "old_params": "", "new_event": "level_start / level_end", "new_params": "level_difficulty = normal | hard | other", "note": "Đổi sang enum thay vì cờ riêng.", "status": "yellow"},
+    {"old_event": "(param) time_purchase", "old_params": "IncreaseTimePurchaseCount", "new_event": "resource_spend + level_end", "new_params": "resource_spend(source=buy_time); level_end.time_extend_count", "note": "Mỗi lần mua +20s bắn resource_spend; tổng số lần gửi trong level_end.", "status": "yellow"},
+    {"old_event": "(param) out_of_time / fail_reason (gameplay)", "old_params": "", "new_event": "level_end", "new_params": "lose_by = time_up | bomb | other", "note": "fail_reason là enum của ads (template riêng) — không dùng cho thua level.", "status": "yellow"},
+    {"old_event": "User property 'level'", "old_params": "FirebaseManager.UpdateUserProperty_Level", "new_event": "current_level (user property)", "new_params": "Int", "note": "Sai tên so với chuẩn: đổi 'level' → current_level, kiểu Int.", "status": "red"},
+    {"old_event": "(screen) win_popup, lose_popup, shop_popup, refill_popup, setting_popup, profile_popup, terms_popup, booster_unlock_popup, block_unlock_popup, booster_purchase_popup", "old_params": "ScreenTracker / GetCurrentScreen", "new_event": "current_screen (user property)", "new_params": "", "note": "Đúng cách dùng current_screen. Bổ sung 'other' và liệt kê đủ giá trị trong tracking doc.", "status": "green"},
+    {"old_event": "SolarEngineInit.TrackLevelData", "old_params": "", "new_event": "—", "new_params": "", "note": "Event gửi sang SolarEngine (không phải Firebase). Dev xác nhận có cần đồng bộ cùng tên/param với Firebase không.", "status": "yellow"}
+  ],
+
+  "questions": [
+    "Sheet_LevelStart / Sheet_LevelEnd đang gửi những param nào? (APK chỉ có tên hàm, không có nội dung hàm)",
+    "Life bị trừ lúc bắt đầu level hay lúc thua? (ảnh hưởng resource_spend source=level_lose)",
+    "Tutorial onboarding ở level 1 có bao nhiêu bước? Cần danh sách step_id / step_name.",
+    "Avatar / frame trong Profile có cần mở khóa không hay miễn phí hết? (quyết định có dùng asset_unlock cho avatar/frame)",
+    "Popup mở khóa blocker mới (BlockUnlockPopup) có cần theo dõi riêng không? Hiện đề xuất dựa vào level funnel theo level có blocker mới.",
+    "Remote Config canPlayWithoutInternet = false thì user bị chặn ở NoInternetPopup — đã track bằng feature_open(feature_name=no_internet). Có cần thêm gì không?",
+    "Skip level bằng ads: level sau khi skip có tính là đã qua (current_level tăng) không?"
+  ]
+}
